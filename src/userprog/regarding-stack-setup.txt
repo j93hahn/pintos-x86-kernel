@@ -1,0 +1,104 @@
+
+The hints below might be helpful.
+But, once again, you don't have to follow this approach.
+You can design the way you want as long as you pass the checks.
+
+Here are some order of readings and additional instructions (and hints!)
+that might help you to progress well in your early p2 project:
+1. Start with understanding what you are trying to reach in p2 project.
+   - Read Project 2 Introduction, Section 3.1 Introduction, Section 3.1.1
+     (You might also find the OSTEP chapter 13, 14 and 15 to be useful)
+2. After you understand of what we want to do in p2 project, your first goal
+   should be to reach the userprog/syscall.c system_handler()
+   - To reach this code, read the Project 2 Section 3.2.
+     (Hint: two simple code changes that are instructed there will enable
+            you to reach the system_handler())
+   - Hack the process_wait to do infinite loop waiting.
+   - Load the correct executable file name.
+   - Handle the parent-child thread status. Parent should wait while the child is loading and executing the code.
+   - Push the exec args to the stack correctly.
+   - Check out threads/init.c run_task() function implementation
+     (Nothing need to be changed here, but something need to be observed)
+   - Your changes are correct, if you can see this:
+     ...
+     Executing 'args-none':
+     system call!
+     ...
+   - Eventually we replace the first changes here with the proper code.
+     But the first hack will help us move forward.
+3. Next, implement the minimum system call skeleton infrastructure and the sys_write() function.
+   - Read the Section 3.2 again, 3.3.4, 3.1.5, 3.5, 3.5.2, 3.4.1, 3.4.2 and lib/syscall-nr.h
+   - Read the guide-syscall.c
+     (Hint: The syscall_handler(), copy_in(), sys_write(), get_user() functions
+     will be very useful here)
+   - Your goal at this point is to see some initial arguments (not all)
+     are printed as the unit test output.
+     (You can start testing the args-none test first.)
+     To run test args-none, you may execute:
+       pintos -v -k -T 5 --qemu  --filesys-size=2 -p tests/userprog/args-none -a args-none -- -q  -f run args-none
+       pintos -v -k -T 60 --qemu  --filesys-size=2 -p tests/userprog/args-single -a args-single -- -q  -f run 'args-single onearg'
+       pintos -v -k -T 60 --qemu  --filesys-size=2 -p tests/userprog/args-multiple -a args-multiple -- -q  -f run 'args-multiple some arguments for you!'
+       pintos -v -k -T 60 --qemu  --filesys-size=2 -p tests/userprog/args-many -a args-many -- -q  -f run 'args-many a b c d e f g h i j k l m n o p q r s t u v'
+   - Your implementation is correct so far, if you can see this
+     when you run the args-none unit test:
+     ...
+     Executing 'args-none':
+     (args) begin
+     (args) argc = 0
+     Page fault at 0: not present error reading page in user context.
+     args-none: dying due to interrupt 0x0e (#PF Page-Fault Exception).
+     ...
+4. The Page-Fault Exception is a sign that the current temporary argument passing
+   implementation does not suit the expected argument passing implementation.
+   Therefore, our next goal is to implement the argument passing in the right way.
+   - Read Section 3.3.3, 3.5.1 (MUST UNDERSTAND THIS SECTION), and 3.5
+   - It is very helpful to follow the instructions in guide-stack-arg.c
+   - Your implementation in the right direction, if you can see this:
+     ...
+     Executing 'args-none':
+     (args) begin
+     (args) argc = 1
+     (args) argv[0] = 'args-none'
+     (args) argv[1] = null
+     (args) end
+     User process ABORT at ../../lib/user/syscall.c:75 in exit(): executed an unreachable statement
+     ...
+     when you run your args-none unit test.
+ 5. The exit() executed an unreachable statement above is a sign that userprog/syscall.c sys_exit()
+    function, but (the assumption is) you have not implemented anything there yet.
+    Therefore, the next thing to focus on is:
+    - Read Section 3.3.4, sys_exit() function definition
+    - Your implementation is correct, if you can see that your args-none unit test
+      now quits because it has reached timeout, instead of exiting by the end of unit test execution.
+      Another thing is that, in the end of the args-none unit test execution,
+      the unit test expects to see:
+      ...
+      args-none: exit(0)
+      ...
+      But so far we have not implemented this. These will be our final progress
+      for the minimum p2 project result.
+ 6. Our last target in this guide is to finish some unit tests correctly.
+    - Read Section 3.3.2.
+    - Some locking mechanism is also needed as well between start_process() and
+      process_execute() in order to prevent the kernel thread to quit before
+      the user program is finished executed.
+    - These last changes will mainly (but not only) happens in userprog/process.c.
+      Some functions that supposed to be affected are process_execute(), start_process(),
+      process_exit(), and replacing our temporary change in process_wait() with a proper
+      locking mechanism.
+    - When these changes are done and you run the args-none unit test, you should be able to see
+      the args-none unit test to pass with some outputs as follow:
+      ...
+      Executing 'args-none':
+      (args) begin
+      (args) argc = 1
+      (args) argv[0] = 'args-none'
+      (args) argv[1] = null
+      (args) end
+      args-none: exit(0)
+      Execution of 'args-none' complete.
+      ...
+      Powering off...
+   - If you reach this point, you can continue on finishing the rest of the syscall implementations.
+     Following the rest of the guide and the rest of the test unit expectation will help you to
+     finish this project well.

@@ -1,0 +1,228 @@
+50% Partner #1: Joshua Ahn, jjahn
+50% Partner #2: Tristan Sharma, tristansharma
+Expected Score: 100
+
+       	     +-------------------------+
+		     |		   CS 140	       |
+		     | PROJECT 4: FILE SYSTEMS |
+		     |	   DESIGN DOCUMENT     |
+		     +-------------------------+
+
+---- GROUP ----
+
+>> Fill in the names and email addresses of your group members.
+
+Joshua Ahn <jjahn@uchicago.edu>
+Tristan Sharma <tristansharma@uchicago.edu>
+
+---- PRELIMINARIES ----
+
+>> If you have any preliminary comments on your submission, notes for the
+>> TAs, or extra credit, please give them here.
+
+N/A
+
+>> Please cite any offline or online sources you consulted while
+>> preparing your submission, other than the Pintos documentation, course
+>> text, lecture notes, and course staff.
+
+N/A
+
+		     INDEXED AND EXTENSIBLE FILES
+		     ============================
+
+---- DATA STRUCTURES ----
+
+>> A1: Copy here the declaration of each new or changed `struct' or
+>> `struct' member, global or static variable, `typedef', or
+>> enumeration.  Identify the purpose of each in 25 words or less.
+
+NOTE: SECTOR_CNT = 123 + 1 + 1 = 125
+
+/* On-disk inode.
+   Must be exactly BLOCK_SECTOR_SIZE bytes long. */
+struct inode_disk
+  {
+    block_sector_t sectors[SECTOR_CNT]; /* Sectors. */
+    enum inode_type type;               /* FILE_INODE or DIR_INODE. */
+    off_t length;                       /* File size in bytes. */
+    unsigned magic;                     /* Magic number. */
+  };
+
+/* In-memory inode. */
+struct inode
+  {
+    struct list_elem elem;              /* Element in inode list. */
+    block_sector_t sector;              /* Sector number of disk location. */
+    int open_cnt;                       /* Number of openers. */
+    bool removed;                       /* True if deleted, false otherwise. */
+    struct lock lock;                   /* Protects the inode. */
+
+    /* Denying writes. */
+    struct lock deny_write_lock;        /* Protects members below. */
+    struct condition no_writers_cond;   /* Signaled when no writers. */
+    int deny_write_cnt;                 /* 0: writes ok, >0: deny writes. */
+    int writer_cnt;                     /* Number of writers. */
+  };
+
+We use the inode_disk struct to store the inode on disk. The sectors array store information about the sectors that are being used and also handles the logic for indirect and doubly indirect blocks. The inode struct on the other hand is used to store the inode in memory. The open_cnt is used to keep track of how many types the inode is open. This implementation helps us because we abstract the inode disk struct to the background, and use the functions block_read() and block_write() to handle interactions between the disk and filesystem layers.
+
+>> A2: What is the maximum size of a file supported by your inode
+>> structure?  Show your work.
+
+The maximum size of a file supported by our inode structure is just over 8MB. At the top of our inode.c file, we have these macros defined:
+
+#define DIRECT_CNT 123
+#define INDIRECT_CNT 1
+#define DBL_INDIRECT_CNT 1
+#define SECTOR_CNT (DIRECT_CNT + INDIRECT_CNT + DBL_INDIRECT_CNT)
+
+#define PTRS_PER_SECTOR ((off_t) (BLOCK_SECTOR_SIZE / sizeof (block_sector_t)))
+#define INODE_SPAN ((DIRECT_CNT                                              \
+                     + PTRS_PER_SECTOR * INDIRECT_CNT                        \
+                     + PTRS_PER_SECTOR * PTRS_PER_SECTOR * DBL_INDIRECT_CNT) \
+                    * BLOCK_SECTOR_SIZE)
+
+We care about the INODE_SPAN macro here because it calculates the total number of sectors we can handle, down through the all the layers of indirection. So, we have 123 + (1 * 128) + (1 * 128 * 128) = 16635 sectors. Since each sector is 512 bytes, we have 16635 * 512 = 8526720 bytes, which is just over 8MB (8MB = 8388608 bytes). Thus, the theoretically maximum file size is actually greater than 8MB (8526720 - 8388608 = about 138112 bytes greater than 8MB). However, the Pintos filesystem is limited to 8MB, so the maximum file size is 8MB; it is still in our interest to be able to support a filesize greater than 8MB, because we can use this to test our filesystem (such as in the dir-vine test).
+
+---- SYNCHRONIZATION ----
+
+>> A3: Explain how your code avoids a race if two processes attempt to
+>> extend a file at the same time.
+
+We have a lock in the inode struct that protects the inode (struct lock lock). This lock is used to protect the inode_disk struct, which is the struct that is actually written to disk. So, when two processes attempt to extend a file at the same time, they will both try to acquire the lock. One of the processes will acquire the lock first, and then the other process will wait until the lock is released. Then, the second process will acquire the lock and extend the file. This ensures that the file is extended correctly, and that the inode_disk struct is not corrupted.
+
+>> A4: Suppose processes A and B both have file F open, both
+>> positioned at end-of-file.  If A reads and B writes F at the same
+>> time, A may read all, part, or none of what B writes.  However, A
+>> may not read data other than what B writes, e.g. if B writes
+>> nonzero data, A is not allowed to see all zeros.  Explain how your
+>> code avoids this race.
+
+We have a lock in the inode struct that protects the inode (struct lock lock). This lock is used to protect the inode_disk struct, which is the struct that is actually written to disk. So, when process A reads and process B writes to the file at the same time, they will both try to acquire the lock. One of the processes will acquire the lock first, and then the other process will wait until the lock is released. Then, the second process will acquire the lock and write to the file. This ensures that the file is written to correctly, and that the inode_disk struct is not corrupted. Then, when process A reads the file, it will read the correct data. It's the same logic as in the above question. We ensure that all of our block_read() and block_write() operations cannot be interrupted by another process; otherwise, that would clearly lead to a race condition.
+
+>> A5: Explain how your synchronization design provides "fairness".
+>> File access is "fair" if readers cannot indefinitely block writers
+>> or vice versa.  That is, many processes reading from a file cannot
+>> prevent forever another process from writing the file, and many
+>> processes writing to a file cannot prevent another process forever
+>> from reading the file.
+
+We handle the reader/writer synchronization fairness problem by using the global filesystem lock which protects the block_read() and block_write() operations. This lock is used to protect the filesystem, and is acquired before any filesystem operation is performed. This ensures that no other process can perform a filesystem operation while another process is performing a filesystem operation. This ensures that readers cannot indefinitely block writers or vice versa because the lock has a queue of waiting threads on it. So, if a writer is waiting to acquire the lock, and a reader acquires the lock, the writer will be blocked until the reader releases the lock. This ensures that the writer will eventually be able to acquire the lock and write to the file. The same logic applies for readers.
+
+---- RATIONALE ----
+
+>> A6: Is your inode structure a multilevel index?  If so, why did you
+>> choose this particular combination of direct, indirect, and doubly
+>> indirect blocks?  If not, why did you choose an alternative inode
+>> structure, and what advantages and disadvantages does your
+>> structure have, compared to a multilevel index?
+
+Yes, we used the multilevel index strategy which includes a combination of direct, indirect, and doubly indirect blocks. The specification of the inode_disk struct is that it must be exactly 512 bytes long, so if we do our math using sizeof() on each element of the struct, we find that the sectors[] array ends up having to be exactly length SECTOR_CNT (equal to 125). In class, we learned that Linux represents each file with something like 10 direct blocks, 1 indirect block, 1 doubly indirect block, and 1 triply indirect block. Here, we decided to use 123 direct blocks, 1 indirect block, and 1 doubly indirect block covers more than 8MB, which is the maximum file size allowed, as denoted by the Pintos manual. We chose this combination because it is the most efficient way to store the most amount of data in the smallest amount of space. The advantage of this structure is that it is very space efficient, but the disadvantage is that it is not as fast as a multilevel index structure with more direct blocks (although in this context, that seems impossible).
+
+			    SUBDIRECTORIES
+			    ==============
+
+---- DATA STRUCTURES ----
+
+>> B1: Copy here the declaration of each new or changed `struct' or
+>> `struct' member, global or static variable, `typedef', or
+>> enumeration.  Identify the purpose of each in 25 words or less.
+
+/* struct to bind a file descriptor to an open file */
+typedef struct file_descriptor {
+    int handle;                     /* file descriptor handle */
+    struct file *file;              /* file pointer */
+    struct list_elem file_elem;     /* list element */
+    bool deny_write;                /* deny write flag */
+
+    struct dir *dir;                /* directory pointer */
+    enum inode_type type;           /* inode type */
+} fd_t;
+
+We kept the same struct dir and struct dir_entry as in the original Pintos code. We did modify our file descriptor struct to handle directory management from the system call handler. The dir field stores a pointer to the directory if the sys_mkdir() system call is called, and the type field stores the type of the inode (FILE or DIR).
+
+---- ALGORITHMS ----
+
+>> B2: Describe your code for traversing a user-specified path.  How
+>> do traversals of absolute and relative paths differ?
+
+We have two critical functions to handle this logic - resolve_name_to_entry() and resolve_name_to_inode(). The resolve_name_to_entry() function takes in a path and returns a pointer to the directory entry of the file or directory specified by the path. The resolve_name_to_inode() function takes in a path and returns a pointer to the inode of the file or directory specified by the path.
+
+We use both functions in different contexts but they are critical for the filesystem layer (filesys_create(), filesys_open(), and filesys_remove()). The traversals of absolute and relative paths differ in that the absolute path starts at the root directory and the relative path starts at the current working directory of the process. However, the logic is the same for both cases; we just need to keep track of the current directory of the process. We have a helper function get_next_part() which helps us parse the path string so that we can figure out where to go relative to the cwd, or if we should start at the root directory for an absolute path. We don't have any special case logic, it's all handled together.
+
+---- SYNCHRONIZATION ----
+
+>> B4: How do you prevent races on directory entries?  For example,
+>> only one of two simultaneous attempts to remove a single file
+>> should succeed, as should only one of two simultaneous attempts to
+>> create a file with the same name, and so on.
+
+We have a global filesystem lock:
+
+/* lock to maintain all file system interactions from the syscall handler */
+static struct lock filesys_lock;
+
+This global lock controls access to the filesystem layer and only allows one process to access the filesystem functionality at a time. The process must first acquire the lock then they can go to the filesystem layer and access directory entries or modify their logic. This prevents race conditions because our filesystem is guarded! In the case when we want to create a file/entry with the same name, we just use inode_reopen() to handle that case!
+
+>> B5: Does your implementation allow a directory to be removed if it
+>> is open by a process or if it is in use as a process's current
+>> working directory?  If so, what happens to that process's future
+>> file system operations?  If not, how do you prevent it?
+
+Our function dir_remove() has a lot of checking in it to handle this question. We first check if the directory is open by a process, and if it is, we return false. We also check if the directory is in use as a process's current working directory, and if it is, we return false. If the directory is not open by a process and is not in use as a process's current working directory, we remove the directory and return true. This prevents the process's future file system operations from being affected. We do not want a directory to be removed if it is open by a process or if it is in use as a process's current working directory because that would cause a lot of problems for the process and the filesystem may get corrupted.
+
+---- RATIONALE ----
+
+>> B6: Explain why you chose to represent the current directory of a
+>> process the way you did.
+
+In our thread struct, we have a field called cwd, which is a pointer to the current working directory of the thread. We chose to represent the current directory of a process this way because it is the most efficient way to keep track of the current working directory of a process. We could have also used a global variable to keep track of the current working directory, but that would have been less efficient because we would have to keep track of the current working directory of every process in the system, which would've been a lot of overhead.
+
+At the bottom of our thread struct, we have:
+
+struct thread
+  {
+    ...
+
+    /* store current working directory of thread */
+    struct dir *cwd;
+
+    ...
+  };
+
+The cwd parameter is initialized to NULL, but whenever we have the chdir() system call, we update the parameter to reflect the current working directory. This is especially important in our logic for resolve_name_to_entry() when we need the cwd of the current process to determine which files & directories exist in the current directory.
+
+			   SURVEY QUESTIONS
+			   ================
+
+Answering these questions is optional, but it will help us improve the
+course in future quarters.  Feel free to tell us anything you
+want--these questions are just to spur your thoughts.  You may also
+choose to respond anonymously in the course evaluations at the end of
+the quarter.
+
+>> In your opinion, was this assignment, or any one of the three problems
+>> in it, too easy or too hard?  Did it take too long or too little time?
+
+It took a while but it wasn't too hard; it's just the standard level of difficulty for an OS project.
+
+>> Did you find that working on a particular part of the assignment gave
+>> you greater insight into some aspect of OS design?
+
+Yeah!
+
+>> Is there some particular fact or hint we should give students in
+>> future quarters to help them solve the problems?  Conversely, did you
+>> find any of our guidance to be misleading?
+
+No, the given source code is extremely helpful.
+
+>> Do you have any suggestions for the TAs to more effectively assist
+>> students in future quarters?
+
+Ray was great! Super helpful, I am very grateful for his technical wisdom.
+
+>> Any other comments?
+
+No - thank you for a great quarter!

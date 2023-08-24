@@ -1,0 +1,184 @@
+50% Partner #1: Joshua Ahn, jjahn
+50% Partner #2: Tristan Sharma, tristansharma
+
+		     +--------------------------+
+       	     |		    CS 140		    |
+		     | PROJECT 2: USER PROGRAMS	|
+		     | 	   DESIGN DOCUMENT     	|
+		     +--------------------------+
+
+---- GROUP ----
+
+>> Fill in the names and email addresses of your group members.
+
+Joshua Ahn <jjahn@uchicago.edu>
+Tristan Sharma <tristansharma@uchicago.edu>
+
+---- PRELIMINARIES ----
+
+>> If you have any preliminary comments on your submission, notes for the
+>> TAs, or extra credit, please give them here.
+
+>> Please cite any offline or online sources you consulted while
+>> preparing your submission, other than the Pintos documentation, course
+>> text, lecture notes, and course staff.
+
+			   ARGUMENT PASSING
+			   ================
+
+---- DATA STRUCTURES ----
+
+>> A1: Copy here the declaration of each new or changed `struct' or
+>> `struct' member, global or static variable, `typedef', or
+>> enumeration.  Identify the purpose of each in 25 words or less.
+
+For argument passing, we did not change or create any new data structures.
+
+---- ALGORITHMS ----
+
+>> A2: Briefly describe how you implemented argument parsing.  How do
+>> you arrange for the elements of argv[] to be in the right order?
+>> How do you avoid overflowing the stack page?
+
+For argument passing, I just followed the Youtube video exactly. I used memcpy() and memset(). First, I malloc() three lists, arg_lens, tokStorage, and addresses, to keep track of the length of each argument, the string tokens, and the memory addresses of each argument on the stack. I then used smart bit manipulation to push the addresses onto the stack according to the little endian architectural style. I pushed all of the proper things in the correct order, and I made sure to be very careful with the word alignment as well as using the hex_dump() command to test the stack setup. I also made sure to free() all of the malloc()ed lists at the end of the function.
+
+---- RATIONALE ----
+
+>> A3: Why does Pintos implement strtok_r() but not strtok()?
+
+Pintos implements strtok_r() because strtok() is not thread safe. strtok() uses a static variable to keep track of the current position in the string, so if two threads are using strtok() at the same time, the static variable will be overwritten and the threads will not be able to keep track of their positions in the string. strtok_r() is thread safe because it uses a char** to keep track of the current position in the string, so each thread can keep track of its own position in the string.
+
+>> A4: In Pintos, the kernel separates commands into a executable name
+>> and arguments.  In Unix-like systems, the shell does this
+>> separation.  Identify at least two advantages of the Unix approach.
+
+The advantage is twofold: by extracting the executable name, it's very easy to check if the executable exists in the file system. If the executable name is not in the file system, then we can return -1 immediately. If the executable name is in the file system, then we can load the executable and pass the arguments to the executable. The second advantage is that it's very easy to pass the arguments to the executable. We can just pass the arguments as a list of strings, and the executable can parse the arguments however it wants in setup_stack().
+
+			     SYSTEM CALLS
+			     ============
+
+---- DATA STRUCTURES ----
+
+>> B1: Copy here the declaration of each new or changed `struct' or
+>> `struct' member, global or static variable, `typedef', or
+>> enumeration.  Identify the purpose of each in 25 words or less.
+
+We only made one new struct, "file-descriptor". This struct handles all new open files and assigns a new open file name with a handle and an elem, so that the owning thread can keep track of its open files.
+
+We created a new global variable "struct lock filesys_lock" to lock the file system when a thread is accessing the file system.
+
+We created a new global counter "fd_curr" initialized to 2 to keep track of the current file descriptor handle number.
+
+I created a new number RANDOM_NUM. This is the exit_status we use to initialize the exit_status of a thread. I made it a random number so that we can check if the exit_status has been initialized or not. Because our synchronization uses busy waiting on the exit status, it was important to use this number.
+
+>> B2: Describe how file descriptors are associated with open files.
+>> Are file descriptors unique within the entire OS or just within a
+>> single process?
+
+File descriptors are associated with open files by using a file descriptor struct. This struct handles all new open files and assigns a new open file name with a handle and an elem, so that the owning thread can keep track of its open files. File descriptors are unique within a single process. Each process has its own file descriptor table, so each process can have its own file descriptors. However, file descriptors are not unique within the entire OS. Each process has its own file descriptor table, so each process can have its own file descriptors. However, two different processes can have the same file descriptor.
+
+---- ALGORITHMS ----
+
+>> B3: Describe your code for reading and writing user data from the
+>> kernel.
+
+We use multiple functions, including check_buffer() and copy_in_string(). check_buffer() checks if the buffer is valid, and copy_in_string() copies the string from the user buffer to the kernel buffer. We use these functions in the read(), write(), and create() system calls. These functions just basically check if the buffer is valid, and if it is, then we copy the string from the user buffer to the kernel buffer.
+
+>> B4: Suppose a system call causes a full page (4,096 bytes) of data
+>> to be copied from user space into the kernel.  What is the least
+>> and the greatest possible number of inspections of the page table
+>> (e.g. calls to pagedir_get_page()) that might result?  What about
+>> for a system call that only copies 2 bytes of data?  Is there room
+>> for improvement in these numbers, and how much?
+
+The least possible number of inspections of the page table is 1, and the greatest possible number of inspections of the page table is 1024. The least possible number of inspections of the page table is 1 because if the page is already in the page table, then we can just return the page. The greatest possible number of inspections of the page table is 1024 because if the page is not in the page table, then we have to inspect the page table 1024 times to find the page. There is room for improvement in these numbers. We can improve the number of inspections of the page table by using a hash table to keep track of the pages that are already in the page table. This way, we can just check the hash table to see if the page is already in the page table, and if it is, then we can just return the page. This way, we can reduce the number of inspections of the page table to 1.
+
+>> B5: Briefly describe your implementation of the "wait" system call
+>> and how it interacts with process termination.
+
+Contrary to what Daniar recommended (semaphores/condition variables), we used busy waiting. We just call thread_yield() and don't implement any synchronization; our code works though haha. We just check if the exit_status has been initialized or not. If it has been initialized, then we return the exit_status. If it has not been initialized, then we call thread_yield() and check again. We do this until the exit_status has been initialized. We use a random number as the exit_status to initialize the exit_status of a thread. This way, we can check if the exit_status has been initialized or not. Because our synchronization uses busy waiting on the exit_status, it was important to use this number.
+
+>> B6: Any access to user program memory at a user-specified address
+>> can fail due to a bad pointer value.  Such accesses must cause the
+>> process to be terminated.  System calls are fraught with such
+>> accesses, e.g. a "write" system call requires reading the system
+>> call number from the user stack, then each of the call's three
+>> arguments, then an arbitrary amount of user memory, and any of
+>> these can fail at any point.  This poses a design and
+>> error-handling problem: how do you best avoid obscuring the primary
+>> function of code in a morass of error-handling?  Furthermore, when
+>> an error is detected, how do you ensure that all temporarily
+>> allocated resources (locks, buffers, etc.) are freed?  In a few
+>> paragraphs, describe the strategy or strategies you adopted for
+>> managing these issues.  Give an example.
+
+Our strategy was simple. We check if the user provided pointer is valid; if it is, then we dereference it! If it isn't, then we call thread_exit() which implicitly calls process_exit(), and that function handles all of the logic for freeing resources. We check the list of open files, child processes, so on and so forth. We also check if the user provided pointer is valid in the read(), write(), and create() system calls. If it isn't, then we return -1. A lot of our pointer-checking logic was abstracted out into other functions so that our system calls were not cluttered with error-handling code. An example: if write() tries to write to an executable file in the case of rox_simple() test, then we call thread_exit() by just checking the deny_write attribute on the file. If it's true, then we call thread_exit(), which then handles all of the resource-freeing logic.
+
+---- SYNCHRONIZATION ----
+
+>> B7: The "exec" system call returns -1 if loading the new executable
+>> fails, so it cannot return before the new executable has completed
+>> loading.  How does your code ensure this?  How is the load
+>> success/failure status passed back to the thread that calls "exec"?
+
+We again use busy waiting here. In the exec, after the load() function returns, we check the status. If it's false, then we call the system exit call and force the child thread to exit, and the parent process can then check the exit status of the child process. If the load() function returns true, then we just return 0. We use a random number as the exit_status to initialize the exit_status of a thread. This way, we can check if the exit_status has been initialized or not. The usage of sys_exit(-1) is very important here; it's what signifies to the thread that calls 'exec' that the exec call failed in the exec-missing test.
+
+>> B8: Consider parent process P with child process C.  How do you
+>> ensure proper synchronization and avoid race conditions when P
+>> calls wait(C) before C exits?  After C exits?  How do you ensure
+>> that all resources are freed in each case?  How about when P
+>> terminates without waiting, before C exits?  After C exits?  Are
+>> there any special cases?
+
+We use busy waiting again. Basically, if P calls wait(C) before C exits, it can't do anything because P has to wait on the exit status of C to return properly first. If C exits first, then we're all good because P can then just extract the exit status and move on. If P terminates without waiting, then we just call thread_exit() on the child process. If C exits first, then we're all good because P can then just extract the exit status and move on. We believe that there are no special cases (at least we didn't have to handle any in our code).
+
+---- RATIONALE ----
+
+>> B9: Why did you choose to implement access to user memory from the
+>> kernel in the way that you did?
+
+It was easiest to implement via the system calls. At first I tried the page_fault() handler but that turned out to be very hard and I couldn't get it to work. I then tried the system calls and it was much easier to implement; we just simply check if the user pointer is valid using put_user(), get_user(), pagedir_get_page(), is_user_vaddr(), and so on. If the pointer is valid, we access it but otherwise we thread_exit().
+
+>> B10: What advantages or disadvantages can you see to your design
+>> for file descriptors?
+
+Our design for file descriptors is concise, easy to understand, and very accessible. At first, it just had the file, the handle, and the file_elem parameters, but then I added an extra parameter called deny_write in order to pass the rox* tests. This just helped me make sure that our file was not being written to when it was supposed to be read-only.
+
+>> B11: The default tid_t to pid_t mapping is the identity mapping.
+>> If you changed it, what advantages are there to your approach?
+
+We used the identity mapping. It was the easiest one to implement.
+
+			   SURVEY QUESTIONS
+			   ================
+
+Answering these questions is optional, but it will help us improve the
+course in future quarters.  Feel free to tell us anything you
+want--these questions are just to spur your thoughts.  You may also
+choose to respond anonymously in the course evaluations at the end of
+the quarter.
+
+>> In your opinion, was this assignment, or any one of the three problems
+>> in it, too easy or too hard?  Did it take too long or too little time?
+
+This assignment was definitely very challenging to code, but conceptually much easier than P1: threads.
+
+>> Did you find that working on a particular part of the assignment gave
+>> you greater insight into some aspect of OS design?
+
+Yes, I have a much more solid understanding of user programs and their interactions with the OS via system calls.
+
+>> Is there some particular fact or hint we should give students in
+>> future quarters to help them solve the problems?  Conversely, did you
+>> find any of our guidance to be misleading?
+
+Nope!
+
+>> Do you have any suggestions for the TAs to more effectively assist
+>> students, either for future quarters or the remaining projects?
+
+Nope! Daniar did great.
+
+>> Any other comments?
+
+We really liked this project! Daniar is a great TA, very chill, easy-going, and funny!
